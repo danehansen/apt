@@ -2,168 +2,96 @@ import fetch from "node-fetch";
 import * as format from "@danehansen/format";
 import nodemailer from "nodemailer";
 
-function dateToString(date) {
-  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
-}
-
-async function getResults() {
+async function getResultsEndpointA() {
   const today = new Date();
   const startStr = dateToString(today);
   today.setDate(today.getDate() + 365);
   const endStr = dateToString(today);
-
-  return fetch(
+  return await getJson(
     `https://www.essexapartmenthomes.com/EPT_Feature/PropertyManagement/Service/GetPropertyAvailabiltyByRange/513968/${startStr}/${endStr}`
   )
     .then((response) => {
-      return response.json();
-    })
-    .then((response) => {
-      const { result } = JSON.parse(response);
-
-      // const floorplans = {};
-      // result.floorplans.forEach((floorplan)=>{
-      //   floorplans[floorplan.floorplan_id] = {
-      //     name: floorplan.name,
-      //     baths: parseInt(floorplan.baths),
-      //   };
-      // })
-      const totalUnits = result.units.length;
-      const units = [];
-      result.units.forEach((unit) => {
-        const u = {
+      return JSON.parse(response).result.units.map((unit) => {
+        return {
           name: unit.name,
-          sqft: unit.sqft,
-          minimum_rent: format.default.dollars(parseInt(unit.minimum_rent)),
+          area: unit.sqft,
+          price: format.default.dollars(parseInt(unit.minimum_rent)),
           baths: parseInt(unit.baths),
-          availability_date: new Date(
-            unit.availability_date
-          ).toLocaleDateString(),
-          make_ready_date: new Date(unit.make_ready_date).toLocaleDateString(),
-          aging_days: unit.aging_days,
-          // floorplan: floorplans[unit.floorplan_id],
+          available: new Date(unit.make_ready_date).toLocaleDateString(),
+          // availability_date: new Date(unit.availability_date).toLocaleDateString(),
+          // aging_days: unit.aging_days,
         };
-        if (u.sqft < 800) {
-          return;
-        }
-        units.push(u);
-      });
-
-      units.sort((a, b) => {
-        return b.name - a.name;
-      });
-      units.sort((a, b) => {
-        return b.sqft - a.sqft;
-      });
-
-      return {
-        totalUnits,
-        units,
-      };
+      }).sort(sortResults);
     });
 }
 
-async function getResults2() {
-  const today = new Date();
-  const startStr = dateToString(today);
-  today.setDate(today.getDate() + 365);
-  const endStr = dateToString(today);
-
-  return fetch(
+async function getResultsEndpointB() {
+  const startStr = dateToString(new Date());
+  return await getJson(
     `https://sightmap.com/app/api/v1/910pdqolw2z/sightmaps/6757?enable_api=1&move_in_date=${startStr}`
   )
-    .then((response) => {
-      return response.json();
-    })
-    .then((response) => {
-      const { data } = response;
-      const { units: _units, floor_plans } = data;
-
+    .then(({ data }) => {
       const floorplans = {};
-      floor_plans.forEach((floorplan) => {
+      data.floor_plans.forEach((floorplan) => {
         floorplans[floorplan.id] = {
           name: floorplan.name,
           baths: floorplan.bathroom_count,
         };
       })
-      const totalUnits = _units.length;
-      const units = [];
-      _units.forEach((unit) => {
-        const id = unit.floor_plan_id
-        const floorplan = floorplans[id]
-        const u = {
+      return data.units.map((unit) => {
+        const floorplan = floorplans[unit.floor_plan_id]
+        return {
           name: unit.unit_number,
-          sqft: unit.area,
-          minimum_rent: format.default.dollars(unit.price),
+          area: unit.area,
+          price: format.default.dollars(unit.price),
           baths: floorplan.baths,
-          make_ready_date: new Date(
+          available: new Date(
             unit.available_on
           ).toLocaleDateString(),
-          // floorplan,
         };
-        if (u.sqft < 800) {
-          return;
-        }
-        units.push(u);
-      });
-      units.sort((a, b) => {
-        return b.name - a.name;
-      });
-      units.sort((a, b) => {
-        return b.sqft - a.sqft;
-      });
-      const result = {
-        totalUnits,
-        units,
-      }
-
-      return result;
+      }).sort(sortResults);
     });
 }
 
-async function emailResults({ units, totalUnits }) {
+async function getJson(url) {
+  return await fetch(url)
+    .then((response) => {
+      return response.json();
+    })
+}
+
+function sortResults(a, b) {
+  if (b.area !== a.area) {
+    return b.area - a.area;
+  }
+  if (b.name < a.name) {
+    return 1;
+  }
+  if (b.name > a.name) {
+    return -1;
+  }
+  return 0;
+}
+
+function dateToString(date) {
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+}
+
+async function emailResults(units) {
   units = units.map(
     ({
       name,
-      sqft,
-      minimum_rent,
+      area,
+      price,
       baths,
-      make_ready_date,
-      availability_date,
-      aging_days,
+      available,
     }) => {
-      let result = `${name}\nsqft: ${sqft}\n${minimum_rent}\nbaths: ${baths}`
-      // result += `\navailable: ${availability_date}`;
-      result += `\nmake_ready_date: ${make_ready_date}`
-      // result += `\naging_days: ${aging_days}`
-      return result;
+      return `${name}\narea: ${area}\n${price}\nbaths: ${baths}\navailable: ${available}`
     }
   );
   units = units.join("\n\n");
 
-  // const testAccount = await nodemailer.createTestAccount();
-
-  // const transporter = nodemailer.createTransport({
-  //   host: "smtp.ethereal.email",
-  //   port: 587,
-  //   secure: false, // true for 465, false for other ports
-  //   auth: {
-  //     user: testAccount.user,
-  //     pass: testAccount.pass,
-  //   },
-  // });
-
-  // const info = await transporter.sendMail({
-  //   from: '"Fred Foo 👻" <foo@example.com>',
-  //   to: "dane@danehansen.com",
-  //   subject: `PE Lofts Availability: total ${totalUnits}`,
-  //   text: units,
-  //   // html: "<b>Hello world?</b>",
-  // });
-
-  // console.log("Message sent: %s", info.messageId);
-
-  console.log(`total: ${totalUnits}\n`);
+  console.log(`total: ${units.length}\n`);
   console.log(units);
 
   const transporter = nodemailer.createTransport({
@@ -187,5 +115,9 @@ async function emailResults({ units, totalUnits }) {
   console.log('done.');
 }
 
-// emailResults(await getResults());
-emailResults(await getResults2());
+const resultsA = await getResultsEndpointA();
+const resultsB = await getResultsEndpointB();
+
+// emailResults(resultsA);
+// emailResults(resultsB);
+console.log({ resultsA, resultsB })
