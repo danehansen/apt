@@ -50,6 +50,9 @@ async function getResults() {
       });
 
       units.sort((a, b) => {
+        return b.name - a.name;
+      });
+      units.sort((a, b) => {
         return b.sqft - a.sqft;
       });
 
@@ -57,6 +60,64 @@ async function getResults() {
         totalUnits,
         units,
       };
+    });
+}
+
+async function getResults2() {
+  const today = new Date();
+  const startStr = dateToString(today);
+  today.setDate(today.getDate() + 365);
+  const endStr = dateToString(today);
+
+  return fetch(
+    `https://sightmap.com/app/api/v1/910pdqolw2z/sightmaps/6757?enable_api=1&move_in_date=${startStr}`
+  )
+    .then((response) => {
+      return response.json();
+    })
+    .then((response) => {
+      const { data } = response;
+      const { units: _units, floor_plans } = data;
+
+      const floorplans = {};
+      floor_plans.forEach((floorplan) => {
+        floorplans[floorplan.id] = {
+          name: floorplan.name,
+          baths: floorplan.bathroom_count,
+        };
+      })
+      const totalUnits = _units.length;
+      const units = [];
+      _units.forEach((unit) => {
+        const id = unit.floor_plan_id
+        const floorplan = floorplans[id]
+        const u = {
+          name: unit.unit_number,
+          sqft: unit.area,
+          minimum_rent: format.default.dollars(unit.price),
+          baths: floorplan.baths,
+          make_ready_date: new Date(
+            unit.available_on
+          ).toLocaleDateString(),
+          // floorplan,
+        };
+        if (u.sqft < 800) {
+          return;
+        }
+        units.push(u);
+      });
+      units.sort((a, b) => {
+        return b.name - a.name;
+      });
+      units.sort((a, b) => {
+        return b.sqft - a.sqft;
+      });
+      const result = {
+        totalUnits,
+        units,
+      }
+
+      return result;
     });
 }
 
@@ -71,7 +132,11 @@ async function emailResults({ units, totalUnits }) {
       availability_date,
       aging_days,
     }) => {
-      return `${name}\nsqft: ${sqft}\n${minimum_rent}\nbaths: ${baths}\navailable: ${availability_date}\nmake_ready_date${make_ready_date}\naging_days: ${aging_days}`;
+      let result = `${name}\nsqft: ${sqft}\n${minimum_rent}\nbaths: ${baths}`
+      // result += `\navailable: ${availability_date}`;
+      result += `\nmake_ready_date: ${make_ready_date}`
+      // result += `\naging_days: ${aging_days}`
+      return result;
     }
   );
   units = units.join("\n\n");
@@ -122,4 +187,5 @@ async function emailResults({ units, totalUnits }) {
   console.log('done.');
 }
 
-emailResults(await getResults());
+// emailResults(await getResults());
+emailResults(await getResults2());
